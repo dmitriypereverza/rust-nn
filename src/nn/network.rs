@@ -10,11 +10,11 @@ use serde_json::{from_str, json};
 use super::{activations::Activation, matrix::Matrix};
 
 pub struct Network<'a> {
+    pub weights: Vec<Matrix>,
+    pub biases: Vec<Matrix>,
+    pub data: Vec<Matrix>,
+    pub learning_rate: f64,
     layers: Vec<usize>,
-    weights: Vec<Matrix>,
-    biases: Vec<Matrix>,
-    data: Vec<Matrix>,
-    learning_rate: f64,
     activation: Activation<'a>,
 }
 
@@ -26,6 +26,9 @@ struct SaveData {
 
 fn from_minus_one_to_one(random_value: f64) -> f64 {
     random_value * 2.0 - 1.0
+}
+fn from_zero_to_one(random_value: f64) -> f64 {
+    random_value
 }
 
 impl Network<'_> {
@@ -52,34 +55,38 @@ impl Network<'_> {
         }
     }
 
-    pub fn train(&mut self, inputs: Vec<Vec<f64>>, targets: Vec<Vec<f64>>, epochs: u16) {
+    pub fn train(&mut self, inputs: &Vec<Vec<f64>>, targets: &Vec<Vec<f64>>, epochs: u16) {
         for i in 1..=epochs {
-            let mut error: f64 = 0.0;
-            for j in 0..inputs.len() {
-                let outputs = self.feed_forward(inputs[j].clone());
-
-                let current_target = targets[j].clone();
-                error += self.calculate_error(&outputs, &current_target);
-                self.back_propogate(outputs, current_target);
-            }
-
+            let error = self.train_one_epoch(&inputs, &targets, self.learning_rate);
             if epochs < 100 || i % (epochs / 20) == 0 {
-                println!(
-                    "Loss: {:.7}, Epoch {} of {}",
-                    error / inputs.len() as f64,
-                    i,
-                    epochs
-                );
+                println!("Loss: {:.7}, Epoch {} of {}", error, i, epochs);
             }
         }
     }
 
-    pub fn feed_forward(&mut self, inputs: Vec<f64>) -> Vec<f64> {
+    pub fn train_one_epoch(
+        &mut self,
+        inputs: &Vec<Vec<f64>>,
+        targets: &Vec<Vec<f64>>,
+        learning_rate: f64,
+    ) -> f64 {
+        let mut error: f64 = 0.0;
+        for j in 0..inputs.len() {
+            let outputs = self.feed_forward(&inputs[j].clone());
+
+            let current_target = targets[j].clone();
+            error += self.calculate_error(&outputs, &current_target);
+            self.back_propagate(outputs, current_target, learning_rate);
+        }
+        error / inputs.len() as f64
+    }
+
+    pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
         if inputs.len() != self.layers[0] {
             panic!("Invalid inputs length");
         }
 
-        let mut current = Matrix::from(vec![inputs]).transpose();
+        let mut current = Matrix::from(vec![inputs.to_vec()]).transpose();
         self.data = vec![current.clone()];
 
         for i in 0..self.layers.len() - 1 {
@@ -102,7 +109,7 @@ impl Network<'_> {
         return errors.clone().pow().collect_sum() / errors.count() as f64;
     }
 
-    pub fn back_propogate(&mut self, outputs: Vec<f64>, targets: Vec<f64>) {
+    pub fn back_propagate(&mut self, outputs: Vec<f64>, targets: Vec<f64>, learning_rate: f64) {
         if targets.len() != self.layers[self.layers.len() - 1] {
             panic!("Invalid targets length");
         }
@@ -114,7 +121,7 @@ impl Network<'_> {
         for i in (0..self.layers.len() - 1).rev() {
             gradients = gradients
                 .scalar_multiplication(&errors)
-                .map(&|x| x * self.learning_rate);
+                .map(&|x| x * learning_rate);
 
             self.weights[i] =
                 self.weights[i].add(&gradients.dot_product(&self.data[i].transpose()));
