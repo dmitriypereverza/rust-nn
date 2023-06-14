@@ -3,6 +3,10 @@ name = "rust-nn"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "run_logics"
+path = "src/run_logics.rs"
+
 [profile.dev]
 opt-level = 1
 
@@ -12,3 +16,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 image = "0.24.6"
 macroquad = "0.3.25"
+itertools = "0.10.5"

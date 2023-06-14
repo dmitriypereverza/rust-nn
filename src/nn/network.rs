@@ -1,4 +1,3 @@
-use std::process::exit;
 use std::{
     fs::File,
     io::{Read, Write},
@@ -14,8 +13,7 @@ pub struct Network<'a> {
     pub biases: Vec<Matrix>,
     pub data: Vec<Matrix>,
     pub learning_rate: f64,
-    layers: Vec<usize>,
-    activation: Activation<'a>,
+    layers: Vec<(usize, Activation<'a>)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -24,25 +22,14 @@ struct SaveData {
     biases: Vec<Vec<Vec<f64>>>,
 }
 
-fn from_minus_one_to_one(random_value: f64) -> f64 {
-    random_value * 2.0 - 1.0
-}
-fn from_zero_to_one(random_value: f64) -> f64 {
-    random_value
-}
-
 impl Network<'_> {
-    pub fn new(layers: Vec<usize>, learning_rate: f64, activation: Activation) -> Network {
+    pub fn new(layers: Vec<(usize, Activation)>, learning_rate: f64) -> Network {
         let mut weights = vec![];
         let mut biases = vec![];
 
         for i in 0..layers.len() - 1 {
-            weights.push(Matrix::random(
-                layers[i + 1],
-                layers[i],
-                &from_minus_one_to_one,
-            ));
-            biases.push(Matrix::random(layers[i + 1], 1, &from_minus_one_to_one));
+            weights.push(Matrix::random(layers[i].0, layers[i + 1].0, -5.0, 5.0));
+            biases.push(Matrix::random(1, layers[i + 1].0, -5.0, 5.0));
         }
 
         Network {
@@ -51,11 +38,15 @@ impl Network<'_> {
             biases,
             data: vec![],
             learning_rate,
-            activation,
         }
     }
 
-    pub fn train(&mut self, inputs: &Vec<Vec<f64>>, targets: &Vec<Vec<f64>>, epochs: u16) {
+    pub fn train(
+        &mut self,
+        inputs: &Vec<Vec<Vec<f64>>>,
+        targets: &Vec<Vec<Vec<f64>>>,
+        epochs: usize,
+    ) {
         for i in 1..=epochs {
             let error = self.train_one_epoch(&inputs, &targets, self.learning_rate);
             if epochs < 100 || i % (epochs / 20) == 0 {
@@ -66,69 +57,83 @@ impl Network<'_> {
 
     pub fn train_one_epoch(
         &mut self,
-        inputs: &Vec<Vec<f64>>,
-        targets: &Vec<Vec<f64>>,
+        inputs: &Vec<Vec<Vec<f64>>>,
+        targets: &Vec<Vec<Vec<f64>>>,
         learning_rate: f64,
     ) -> f64 {
         let mut error: f64 = 0.0;
-        for j in 0..inputs.len() {
-            let outputs = self.feed_forward(&inputs[j].clone());
+        for i in 0..inputs.len() {
+            let next_input = inputs.get(i).unwrap();
+            let next_target = targets.get(i).unwrap();
+            let outputs = self.feed_forward(next_input.clone());
 
-            let current_target = targets[j].clone();
+            let current_target = next_target.clone();
             error += self.calculate_error(&outputs, &current_target);
             self.back_propagate(outputs, current_target, learning_rate);
         }
         error / inputs.len() as f64
     }
 
-    pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
-        if inputs.len() != self.layers[0] {
-            panic!("Invalid inputs length");
-        }
+    pub fn feed_forward(&mut self, inputs: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+        let mut current = Matrix::from(inputs.clone());
 
-        let mut current = Matrix::from(vec![inputs.to_vec()]).transpose();
         self.data = vec![current.clone()];
 
         for i in 0..self.layers.len() - 1 {
-            current = self.weights[i]
-                .dot_product(&current)
+            current = current
+                .dot_product(&self.weights[i])
                 .add(&self.biases[i])
-                .map(self.activation.function);
+                .map(self.layers[i].1.function);
+
             self.data.push(current.clone());
         }
 
-        current.transpose().data[0].to_owned()
+        current.data.to_owned()
     }
 
-    pub fn calculate_error(&self, outputs: &Vec<f64>, targets: &Vec<f64>) -> f64 {
-        let parsed = Matrix::from(vec![outputs.to_vec()]).transpose();
-        let errors = Matrix::from(vec![targets.to_vec()])
-            .transpose()
-            .subtract(&parsed);
+    pub fn calculate_error(&self, outputs: &Vec<Vec<f64>>, targets: &Vec<Vec<f64>>) -> f64 {
+        let parsed = Matrix::from(outputs.clone());
+        let errors = Matrix::from(targets.clone()).subtract(&parsed).square();
 
-        return errors.clone().pow().collect_sum() / errors.count() as f64;
+        return errors.clone().collect_sum() / errors.count() as f64;
     }
 
-    pub fn back_propagate(&mut self, outputs: Vec<f64>, targets: Vec<f64>, learning_rate: f64) {
-        if targets.len() != self.layers[self.layers.len() - 1] {
+    pub fn back_propagate(
+        &mut self,
+        outputs: Vec<Vec<f64>>,
+        targets: Vec<Vec<f64>>,
+        learning_rate: f64,
+    ) {
+        if targets[0].len() != self.layers[self.layers.len() - 1].0 {
             panic!("Invalid targets length");
         }
 
-        let parsed = Matrix::from(vec![outputs]).transpose();
-        let mut errors = Matrix::from(vec![targets]).transpose().subtract(&parsed);
-        let mut gradients = parsed.map(self.activation.derivative);
+        /*
+           +---+     +---+   +---+ +---+     +---+   +---+
+           | x |-----| t |---| h | | x |-----| t |---| h |
+           +---+ / \ +---+   +---+ +---+ / \ +---+   +---+
+                /   \                   /   \
+               /     \                 /     \
+           +---+     +---+         +---+     +---+
+           | w |     | b |         | w |     | b |
+           +---+     +---+         +---+     +---+
+        */
+
+        let targets_matrix = Matrix::from(targets);
+        let de_dh = Matrix::from(outputs).subtract(&targets_matrix);
+
+        let mut de_dt = de_dh.map(self.layers[self.layers.len() - 1].1.derivative);
 
         for i in (0..self.layers.len() - 1).rev() {
-            gradients = gradients
-                .scalar_multiplication(&errors)
-                .map(&|x| x * learning_rate);
+            let de_dw = self.data[i].transpose().dot_product(&de_dt);
+            let de_db = de_dt.sum_by_axis(0);
 
             self.weights[i] =
-                self.weights[i].add(&gradients.dot_product(&self.data[i].transpose()));
-            self.biases[i] = self.biases[i].add(&gradients);
+                self.weights[i].subtract(&de_dw.map(&|x| x * learning_rate));
+            self.biases[i] = self.biases[i].subtract(&de_db.map(&|x| x * learning_rate));
 
-            errors = self.weights[i].transpose().dot_product(&errors);
-            gradients = self.data[i].map(self.activation.derivative);
+            let de_dh = (&de_dt).dot_product(&self.weights[i].transpose());
+            de_dt = de_dh.map(self.layers[i].1.derivative);
         }
     }
 

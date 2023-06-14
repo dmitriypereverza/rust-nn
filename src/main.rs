@@ -1,5 +1,4 @@
 use macroquad::prelude::*;
-use std::process::exit;
 
 pub mod nn {
     pub mod activations;
@@ -8,9 +7,10 @@ pub mod nn {
 }
 mod image_nn;
 
-use crate::nn::activations::{RELU, TANH};
 use nn::activations::SIGMOID;
 use nn::network::Network;
+
+use crate::nn::activations::{Activation, IDENTITY, RELU};
 
 pub struct Vector2 {
     x: f32,
@@ -49,27 +49,42 @@ async fn main() {
         &mut image_height,
     );
 
-    // println!("inputs = {:?}", inputs);
-    // println!("targets = {:?}", targets);
-    // println!("image_width = {:#?}", image_width);
-    // println!("image_height = {:#?}", image_height);
-    // exit(0);
+    const BATCH_SIZE: usize = 20;
+    let mut learning_rate = 0.000001;
 
-    let mut learnig_rate_slider_dragging = false;
-    let mut learnig_rate_slider_value = 0.4;
+    
 
-    let mut learning_rate = 0.1;
-    let nn_architecture = vec![2, 40, 10, 1];
-    let mut network = Network::new(nn_architecture.clone(), learning_rate.clone(), SIGMOID);
+    let inputs_batches = inputs
+        .chunks(BATCH_SIZE)
+        .into_iter()
+        .map(|x| x.to_owned())
+        .collect();
+    let targets_batches = targets
+        .chunks(BATCH_SIZE)
+        .into_iter()
+        .map(|x| x.to_owned())
+        .collect();
+
+    let mut learning_rate_slider_value = 0.4;
+
+    #[rustfmt::skip]
+    let nn_architecture: Vec<(usize, Activation)> = vec![
+        (2, IDENTITY), 
+        (15, RELU),  
+        (15, RELU), 
+        (1, SIGMOID)
+    ];
+    let mut network = Network::new(nn_architecture.clone(), learning_rate.clone());
     let mut errors: Vec<f64> = vec![];
     loop {
         if is_key_pressed(KeyCode::Space) {
-            network = Network::new(nn_architecture.clone(), learning_rate.clone(), SIGMOID);
+            network = Network::new(nn_architecture.clone(), learning_rate.clone());
             errors = vec![];
         }
         let mut current_error = 0.0;
         for _epoch in 0..7 {
-            current_error = network.train_one_epoch(&inputs, &targets, learning_rate);
+            current_error =
+                network.train_one_epoch(&inputs_batches, &targets_batches, learning_rate);
         }
 
         // println!("weights = {:?}", network.weights);
@@ -107,7 +122,7 @@ async fn main() {
         );
 
         let slider_circle_position = Vector2 {
-            x: slider_position.x + slider_width * learnig_rate_slider_value as f32,
+            x: slider_position.x + slider_width * learning_rate_slider_value as f32,
             y: slider_position.y,
         };
         let mouse_position = Vector2 {
@@ -115,14 +130,13 @@ async fn main() {
             y: mouse_position().1,
         };
 
-        learnig_rate_slider_dragging = is_mouse_button_down(MouseButton::Left)
-            && vector2_distance(&slider_circle_position, &mouse_position) > 6.0;
+        if is_mouse_button_down(MouseButton::Left)
+            && vector2_distance(&slider_circle_position, &mouse_position) > 6.0
+        {
+            learning_rate_slider_value =
+                ((mouse_position.x - slider_position.x) / slider_width).clamp(0.0, 1.0) as f64;
 
-        if (learnig_rate_slider_dragging) {
-            learnig_rate_slider_value =
-                ((mouse_position.x - slider_position.x) / slider_width).clamp(0.0001, 1.0) as f64;
-
-            learning_rate = lerp(0.02, 0.2, learnig_rate_slider_value);
+            learning_rate = lerp(0.000001, 0.001, learning_rate_slider_value);
         }
         draw_circle(slider_circle_position.x, slider_circle_position.y, 6.0, RED);
 
@@ -160,10 +174,8 @@ async fn main() {
         );
         top_images_padding += 10.0;
         for sample_index in 0..inputs.len() {
-            let input = inputs.get(sample_index);
-            let position = input.unwrap();
-            let target = targets.get(sample_index);
-            let brightness = target.unwrap()[0] as f32;
+            let position = inputs.get(sample_index).unwrap();
+            let brightness = targets.get(sample_index).unwrap()[0] as f32;
             draw_rectangle(
                 left_images_padding + position[0] as f32 * image_width * image_scale,
                 top_images_padding + position[1] as f32 * image_height * image_scale,
@@ -183,17 +195,22 @@ async fn main() {
             DARKGRAY,
         );
         top_images_padding += 10.0;
-        for sample_index in 0..inputs.len() {
-            let input = inputs.get(sample_index);
-            let position = input.unwrap();
-            let target = network.feed_forward(position)[0] as f32;
-            draw_rectangle(
-                left_images_padding + position[0] as f32 * image_width * image_scale,
-                top_images_padding + position[1] as f32 * image_height * image_scale,
-                image_scale,
-                image_scale,
-                Color::new(target, target, target, 1.0),
-            )
+        for sample_batch_index in 0..inputs_batches.len() {
+            let input = inputs_batches.get(sample_batch_index);
+            let positions = input.unwrap();
+            let targets = network.feed_forward(positions.clone());
+
+            for i in 0..positions.len() {
+                let position = positions.get(i).unwrap();
+                let target = *targets.get(i).unwrap().get(0).unwrap() as f32;
+                draw_rectangle(
+                    left_images_padding + position[0] as f32 * image_width * image_scale,
+                    top_images_padding + position[1] as f32 * image_height * image_scale,
+                    image_scale,
+                    image_scale,
+                    Color::new(target, target, target, 1.0),
+                )
+            }
         }
 
         next_frame().await
