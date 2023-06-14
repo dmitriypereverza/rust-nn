@@ -11,38 +11,39 @@ use nn::network::Network;
 use crate::nn::activations::{Activation, IDENTITY, RELU};
 
 fn main() {
-    let inputs: Vec<Vec<f64>> = vec![
-        vec![0.0, 0.0],
-        vec![1.0, 0.0],
-        vec![0.0, 1.0],
-        vec![1.0, 1.0],
+    let inputs: Vec<Vec<Vec<f64>>> = vec![
+        vec![vec![0.0]],
+        vec![vec![5.0]],
+        vec![vec![0.0]],
+        vec![vec![1.0]],
     ];
-    let targets: Vec<Vec<f64>> = vec![
-        vec![0.0],
-        vec![1.0],
-        vec![1.0],
-        vec![1.0],
+    let targets: Vec<Vec<Vec<f64>>> = vec![
+        vec![vec![0.0]],
+        vec![vec![10.0]],
+        vec![vec![0.0]],
+        vec![vec![2.0]],
     ];
 
     #[rustfmt::skip]
     let nn_architecture: Vec<(usize, Activation)> = vec![
-        (2, SIGMOID), 
-        (2, SIGMOID),
-        (1, SIGMOID)
+        (1, IDENTITY), 
+        (1, IDENTITY)
     ];
-    let learning_rate = 0.001;
+    let learning_rate = 0.01;
     let mut network = Network::new(nn_architecture.clone(), learning_rate.clone());
 
     let mut error: f64 = 0.0;
-    for _ in 0..10000 {
-        error = network.train_one_epoch(&vec![inputs.clone()], &vec![targets.clone()], learning_rate);
+    for _ in 0..100 {
+        error = network.train_one_epoch(&inputs.clone(), &targets.clone(), learning_rate);
         println!("Err: {}", error);
     }
 
-    let out = network.feed_forward(inputs.clone());
-
-    for i in 0..inputs.len() {
-        println!("{} {} = {}", inputs[i][0], inputs[i][1], out[i][0]);
+    
+    println!("\nResult:");
+    let test = inputs.clone();
+    for i in test.iter() {
+        let out = network.feed_forward(i.clone());
+        println!("{:?} = {:?}", i, out);
     }
 
 }

@@ -28,8 +28,8 @@ impl Network<'_> {
         let mut biases = vec![];
 
         for i in 0..layers.len() - 1 {
-            weights.push(Matrix::random(layers[i].0, layers[i + 1].0, -5.0, 5.0));
-            biases.push(Matrix::random(1, layers[i + 1].0, -5.0, 5.0));
+            weights.push(Matrix::random(layers[i].0, layers[i + 1].0, -1.0, 1.0));
+            biases.push(Matrix::random(1, layers[i + 1].0, -1.0, 1.0));
         }
 
         Network {
@@ -120,9 +120,8 @@ impl Network<'_> {
         */
 
         let targets_matrix = Matrix::from(targets);
-        let de_dh = Matrix::from(outputs).subtract(&targets_matrix);
-
-        let mut de_dt = de_dh.map(self.layers[self.layers.len() - 1].1.derivative);
+    
+        let mut de_dt = Matrix::from(outputs).subtract(&targets_matrix);
 
         for i in (0..self.layers.len() - 1).rev() {
             let de_dw = self.data[i].transpose().dot_product(&de_dt);
